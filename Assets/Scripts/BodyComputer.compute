@@ -1,0 +1,52 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+struct Body
+{
+    float3 position;
+    float3 velocity;
+    float mass;
+};
+
+
+RWStructuredBuffer<Body> bodies;
+int bodiesCount;
+
+float gravityConstant;
+float constraint;
+float dt;
+
+float magnitude(float3 vec)
+{
+    return sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z);
+}
+
+float3 GetVelocityForBody(int index)
+{
+    float3 force = 0;
+    
+    [loop]
+    for (int i = 0; i < bodiesCount; i++)
+    {
+        if (index == i)
+        {
+            continue;
+        }
+
+        float3 delta = bodies[i].position - bodies[index].position;
+        float distance = max(length(delta), constraint);
+        force += gravityConstant * delta * (bodies[index].mass * bodies[i].mass / pow(distance, 3));
+    }
+    
+    return force / bodies[index].mass *  dt;
+}
+
+[numthreads(256,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    Body currentBody = bodies[id.x];
+    float3 velocity = GetVelocityForBody(id.x);
+    AllMemoryBarrier();
+    currentBody.velocity += velocity;
+    bodies[id.x] = currentBody;
+}
