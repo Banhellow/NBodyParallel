@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -7,11 +6,11 @@ public class DataHandler
 {
     public class BodyInput
     {
-        public float mass;
+        public int mass;
         public Vector3 position;
         public Vector3 velocity;
 
-        public BodyInput(float mass, Vector3 position, Vector3 velocity)
+        public BodyInput(int mass, Vector3 position, Vector3 velocity)
         {
             this.mass = mass;
             this.position = position;
@@ -41,7 +40,7 @@ public class DataHandler
         var splited = csv.Split(",");
         for (int i = 6; i < splited.Length; i+= 7)
         {
-            float.TryParse(splited[i - 6], out var mass);
+            int.TryParse(splited[i - 6], out var mass);
             var position = ParseVector(splited[i - 5], splited[i - 4], splited[i - 3]);
             var velocity = ParseVector(splited[i - 2], splited[i - 1], splited[i - 0]);
             var body = new BodyInput(mass, position, velocity);

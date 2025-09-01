@@ -1,5 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -28,7 +26,6 @@ public class IntializeGeneralPanel : MonoBehaviour, IConfigurable
         gravityConstant.Initialize("Gravity Constant: ", settings.gravityConstant);
         threadsCount.Initialize("Threads Count: ", settings.threadsCount);
         radiusConstraint.Initialize( "Radius Constraint: ", settings.distanceConstraint);
-        toggle.isOn = bodyController.useComputeShader;
         updateButton.onClick.AddListener(OnConfirmButtonClicked);
         OnConfirmButtonClicked();
     }

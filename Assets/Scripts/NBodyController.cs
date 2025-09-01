@@ -1,48 +1,52 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Security.Cryptography;
-using System.Threading.Tasks;
+using Dataset;
+using DefaultNamespace;
+using SimulationBackend;
 using Unity.Burst;
-using Unity.Collections;
-using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
-using Unity.VisualScripting;
 using UnityEngine;
-using UnityEngine.Jobs;
 using Random = UnityEngine.Random;
 
 [BurstCompile]
 public class NBodyController : MonoBehaviour
 {
     [SerializeField] private Transform container;
-    [SerializeField] private bool enableParallel;
     [SerializeField] private int bodiesToSimulate;
     [SerializeField] private float gravityConstant;
     [SerializeField] private float minDistance;
     [SerializeField] private GravityBody bodyPrefab;
-    public bool useComputeShader;
-    private NativeArray<Vector3> velocities = new();
-    private NativeArray<float> masses;
+    [SerializeField] private bool collectData;
+    [SerializeField] private DatasetSettings datasetSettings;
+    [SerializeField] private SimulationType simulationType;
     private readonly List<Transform> _transforms = new();
     private bool simulationEnabled;
+    private bool shouldRecordData;
     
     //Perfomance counting
     private double totalExecutionTime;
     private int executionCount;
     private float deltaTime;
     private float framesCount;
+    private int simulationFramesCount;
+    private SimulationBackendBase simulation;
+    private SimulationBackendFactory simulationBackendFactory;
+    private DatasetRecorder datasetRecorder;
     
     [SerializeField] private ComputeShader parallelShader;
 
     void Start()
     {
+        Application.targetFrameRate = 60;
+        simulationBackendFactory = new SimulationBackendFactory();
+        shouldRecordData = datasetSettings != null;
         Reset();
     }
 
     void Reset()
     {
         ResetBodies();
+        simulation?.Dispose();
+        simulation = null;
         totalExecutionTime = 0;
         executionCount = 0;
     }
@@ -59,8 +63,8 @@ public class NBodyController : MonoBehaviour
 
     private void OnDestroy()
     {
-        velocities.Dispose();
-        masses.Dispose();
+        simulation.Dispose();
+        datasetRecorder?.TrySaveDataSet();
     }
 
     private void StartSimulation()
@@ -80,25 +84,11 @@ public class NBodyController : MonoBehaviour
         {
             return;
         }
-
-        if (enableParallel)
+        
+        simulation.SimulateFrame();
+        if (shouldRecordData)
         {
-            var time = DateTime.Now;
-            if (useComputeShader)
-            {
-                UpdateWithComputeShader();
-            }
-            else
-            {
-                UpdateInParallel();
-            }
- 
-            totalExecutionTime = (DateTime.Now - time).TotalMilliseconds;
-            executionCount++;
-        }
-        else
-        {
-            UpdateInSequence();
+            datasetRecorder.Record(_transforms);
         }
         
         deltaTime += (Time.unscaledDeltaTime - deltaTime) * 0.1f;
@@ -122,104 +112,13 @@ public class NBodyController : MonoBehaviour
         GUI.Label(rect, text, style);
     }
 
-    private void UpdateInSequence()
-    {
-        UpdateForces();
-        UpdateBodies(velocities);
-    }
-
-    private void UpdateInParallel()
-    {
-        if (useComputeShader)
-        {
-            UpdateWithComputeShader();
-            return;
-        }
-
-        NativeArray<Vector3> positions = new NativeArray<Vector3>(bodiesToSimulate, Allocator.TempJob);
-        for (int i = 0; i < bodiesToSimulate; i++)
-        {
-            positions[i] = _transforms[i].position;
-        }
-
-        TransformAccessArray particles = new TransformAccessArray(_transforms.ToArray());
-        var job = new BodyJob(positions, velocities, masses, gravityConstant, minDistance, 1/144f);
-        int batchCount = bodiesToSimulate / JobsUtility.JobWorkerCount;
-        JobHandle handle = job.Schedule(bodiesToSimulate, batchCount);
-
-        var updateJob = new UpdateJob(velocities);
-        JobHandle updateHandle = updateJob.ScheduleByRef(particles, handle);
-        updateHandle.Complete();
-
-        positions.Dispose();
-        particles.Dispose();
-    }
-
-    private void UpdateWithComputeShader()
-    {
-        if (!simulationEnabled)
-        {
-            return;
-        }
-        
-        Body[] bodiesData = new Body[_transforms.Count];
-        for (int i = 0; i < bodiesData.Length; i++)
-        {
-            bodiesData[i] = new Body
-            {
-                position = _transforms[i].position,
-                velocity = velocities[i],
-                mass = masses[i]
-            };
-        }
-
-        ComputeBuffer computeBuffer = new ComputeBuffer(bodiesData.Length, Body.GetSize());
-        
-        computeBuffer.SetData(bodiesData);
-        parallelShader.SetBuffer(0, "bodies", computeBuffer);
-        parallelShader.SetInt("bodiesCount", bodiesData.Length);
-        parallelShader.SetFloat("gravityConstant", gravityConstant);
-        parallelShader.SetFloat("constraint", minDistance);
-        parallelShader.SetFloat("dt", 1/ 144f);
-        
-        var groupsCount = Mathf.FloorToInt(bodiesData.Length / 128f);
-        parallelShader.Dispatch(0,groupsCount, 1, 1);
-        
-        computeBuffer.GetData(bodiesData);
-        for (int i = 0; i < bodiesData.Length; i++)
-        {
-            _transforms[i].position += bodiesData[i].velocity;
-            velocities[i] = bodiesData[i].velocity;
-        }
-        
-        computeBuffer.Dispose();
-    }
-
-    private void UpdateForces()
-    {
-        for (int i = 0; i < bodiesToSimulate; i++)
-        {
-            Vector3 force = Vector3.zero;
-            for (int j = 0; j < bodiesToSimulate; j++)
-            {
-                if (i != j)
-                {
-                    var delta = _transforms[j].position - _transforms[i].position;
-                    var distance = Mathf.Max(delta.magnitude, minDistance);
-                    force += delta * (10 * 10 / Mathf.Pow(distance, 3));
-                }
-            }
-
-            velocities[i] += force / 10 * (gravityConstant * Time.deltaTime);
-        }
-    }
-
     public void InitializeFromFile(List<DataHandler.BodyInput> inputs)
     {
         Reset();
+
         bodiesToSimulate = inputs.Count;
-        velocities = new NativeArray<Vector3>(bodiesToSimulate, Allocator.Persistent);
-        masses = new NativeArray<float>(bodiesToSimulate, Allocator.Persistent);
+        var velocities = new Vector3[bodiesToSimulate];
+        var masses = new float[bodiesToSimulate];
         for (int i = 0; i < bodiesToSimulate; i++)
         {
             var body = Instantiate(bodyPrefab, inputs[i].position, Quaternion.identity, container);
@@ -227,6 +126,19 @@ public class NBodyController : MonoBehaviour
             _transforms.Add(body.transform);
             masses[i] = inputs[i].mass;
             velocities[i] = inputs[i].velocity;
+        }
+
+        if (datasetSettings != null)
+        {
+            datasetRecorder = new DatasetRecorder(datasetSettings);
+            datasetRecorder.Initialize(bodiesToSimulate, masses);
+        }
+
+        simulation = simulationBackendFactory.Create(simulationType, _transforms, minDistance, gravityConstant, parallelShader);
+        simulation.Initialize(velocities, masses);
+        if (simulation is WSPredictionModelBackend wsSim)
+        {
+            wsSim.InitializeConnection();
         }
         
         StartSimulation();
@@ -237,8 +149,9 @@ public class NBodyController : MonoBehaviour
         
         Reset();
         bodiesToSimulate = bodyCount;
-        velocities = new NativeArray<Vector3>(bodiesToSimulate, Allocator.Persistent);
-        masses = new NativeArray<float>(bodiesToSimulate, Allocator.Persistent);
+
+        var velocities = new Vector3[bodiesToSimulate];
+        var masses = new float[bodiesToSimulate];
         for (int i = 0; i < bodiesToSimulate; i++)
         {
             var position = Random.insideUnitSphere * spawnRange;
@@ -246,40 +159,32 @@ public class NBodyController : MonoBehaviour
             var velocity = Random.insideUnitSphere * Random.Range(0f,velocityRange);
             var body = Instantiate(bodyPrefab, position, Quaternion.identity, container);
             _transforms.Add(body.transform);
-            body.transform.localScale = 0.1f * mass * Vector3.one;
+            body.transform.localScale = 0.1f * 20 * Vector3.one;
             masses[i] = mass;
             velocities[i] = velocity;
         }
         
+        if (datasetSettings != null)
+        {
+            datasetRecorder = new DatasetRecorder(datasetSettings);
+            datasetRecorder.Initialize(bodiesToSimulate, masses);
+        }
+        
+        simulation = simulationBackendFactory.Create(simulationType, _transforms, minDistance, gravityConstant, parallelShader);
+        simulation.Initialize(velocities, masses);  
+        if (simulation is WSPredictionModelBackend wsSim)
+        {
+            wsSim.InitializeConnection();
+        }
+        
         StartSimulation();
     }
+    
 
     public void UpdateGeneralSettings(int threadCount, float gravityConst, float distanceConstraint, bool useComputeShader)
     {
         JobsUtility.JobWorkerCount = threadCount;
         gravityConstant = gravityConst;
         minDistance = distanceConstraint;
-        this.useComputeShader = useComputeShader;
-    }
-
-    private void UpdateBodies(NativeArray<Vector3> velocities)
-    {
-        for (int i = 0; i < bodiesToSimulate; i++)
-        {
-            _transforms[i].position += velocities[i];
-        }
-    }
-
-
-    private struct Body
-    {
-        public Vector3 position;
-        public Vector3 velocity;
-        public float mass;
-
-        public static int GetSize()
-        {
-            return sizeof(float) * 7;
-        }
     }
 }
