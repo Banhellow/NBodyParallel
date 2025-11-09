@@ -5,7 +5,8 @@ namespace SimulationBackend
 {
     public class SequentialBackend : SimulationBackendBase
     {
-        private Vector3[] velocities; 
+        private Vector3[] velocities;
+        private float[] masses;
         public SequentialBackend(List<Transform> objectToUpdate, float gravityConstant, float minDistance) 
             : base(objectToUpdate, minDistance, gravityConstant)
         {
@@ -18,9 +19,10 @@ namespace SimulationBackend
             UpdateBodies();
         }
 
-        public override void Initialize(Vector3[] newVelocities, float[] masses)
+        public override void Initialize(Vector3[] newVelocities, float[] newMasses)
         {
             velocities = newVelocities;
+            masses = newMasses;
         }
         
         private void UpdateForces()
@@ -34,11 +36,11 @@ namespace SimulationBackend
                     {
                         var delta = ObjectsToUpdate[j].position - ObjectsToUpdate[i].position;
                         var distance = Mathf.Max(delta.magnitude, MinDistance);
-                        force += delta * (10 * 10 / Mathf.Pow(distance, 3));
+                        force += delta * (masses[i] * masses[j] / Mathf.Pow(distance, 3));
                     }
                 }
 
-                velocities[i] += force / 10 * (GravityConstant * Time.deltaTime);
+                velocities[i] += force / masses[i] * (GravityConstant * Time.deltaTime);
             }
         }
         

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Dataset;
 using DefaultNamespace;
 using SimulationBackend;
+using TMPro;
 using Unity.Burst;
 using Unity.Jobs.LowLevel.Unsafe;
 using UnityEngine;
@@ -18,6 +19,7 @@ public class NBodyController : MonoBehaviour
     [SerializeField] private bool collectData;
     [SerializeField] private DatasetSettings datasetSettings;
     [SerializeField] private SimulationType simulationType;
+    [SerializeField] private TMP_Dropdown dropdown;
     private readonly List<Transform> _transforms = new();
     private bool simulationEnabled;
     private bool shouldRecordData;
@@ -40,6 +42,7 @@ public class NBodyController : MonoBehaviour
         simulationBackendFactory = new SimulationBackendFactory();
         shouldRecordData = datasetSettings != null;
         Reset();
+        dropdown.onValueChanged.AddListener(OnBackendDropdownChanged);
     }
 
     void Reset()
@@ -49,6 +52,11 @@ public class NBodyController : MonoBehaviour
         simulation = null;
         totalExecutionTime = 0;
         executionCount = 0;
+    }
+    
+    public void OnBackendDropdownChanged(int value)
+    {
+        simulationType = (SimulationType)value;
     }
 
     private void ResetBodies()
@@ -63,6 +71,7 @@ public class NBodyController : MonoBehaviour
 
     private void OnDestroy()
     {
+        dropdown.onValueChanged.RemoveListener(OnBackendDropdownChanged);
         simulation.Dispose();
         datasetRecorder?.TrySaveDataSet();
     }

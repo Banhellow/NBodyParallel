@@ -63,8 +63,6 @@ namespace SimulationBackend
             
             return parsedPositions;
         }
-
-
         
         private Vector3[] PredictForces(Vector3[] positions)
         {
