@@ -39,9 +39,11 @@ namespace SimulationBackend
 
         public override void SimulateFrame()
         {
-            var forcesJob = new BodyJob(positions, velocities, masses, GravityConstant, MinDistance, 1/144f);
-            var batchCount = ObjectsToUpdate.Count / JobsUtility.JobWorkerCount;
-            var forceHandle = forcesJob.Schedule( ObjectsToUpdate.Count, batchCount);
+            var forcesJob = new BodyJob(positions, velocities, masses, GravityConstant, MinDistance, TimeStep);
+
+            var workerCount = math.max(1, JobsUtility.JobWorkerCount);
+            var batchCount = math.max(1, ObjectsToUpdate.Count / workerCount);
+            var forceHandle = forcesJob.Schedule(ObjectsToUpdate.Count, batchCount);
 
             var updateJob = new UpdateJob(velocities, positions);
             var updateHandle = updateJob.ScheduleByRef(particles, forceHandle);

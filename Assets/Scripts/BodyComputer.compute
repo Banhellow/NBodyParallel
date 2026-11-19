@@ -41,12 +41,18 @@ float3 GetVelocityForBody(int index)
     return force / bodies[index].mass *  dt;
 }
 
-[numthreads(256,1,1)]
+#define THREAD_GROUP_SIZE 256
+
+[numthreads(THREAD_GROUP_SIZE,1,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    Body currentBody = bodies[id.x];
-    float3 velocity = GetVelocityForBody(id.x);
-    AllMemoryBarrier();
-    currentBody.velocity += velocity;
-    bodies[id.x] = currentBody;
+    // The last group can be partially filled, so skip threads past the end of the buffer.
+    if (id.x >= (uint)bodiesCount)
+    {
+        return;
+    }
+
+    // Only the velocity is written. Positions and masses are read-only in this kernel,
+    // so other threads can read them without any synchronization.
+    bodies[id.x].velocity += GetVelocityForBody(id.x);
 }

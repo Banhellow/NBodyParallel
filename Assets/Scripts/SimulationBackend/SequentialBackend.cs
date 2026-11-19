@@ -40,7 +40,7 @@ namespace SimulationBackend
                     }
                 }
 
-                velocities[i] += force / masses[i] * (GravityConstant * Time.deltaTime);
+                velocities[i] += force / masses[i] * (GravityConstant * TimeStep);
             }
         }
         

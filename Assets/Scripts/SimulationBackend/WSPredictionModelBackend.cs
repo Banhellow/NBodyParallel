@@ -64,9 +64,8 @@ namespace SimulationBackend
             return parsedPositions;
         }
         
-        private Vector3[] PredictForces(Vector3[] positions)
+        private void PredictForces(Vector3[] positions, Vector3[] frameVelocities)
         {
-            var frameVelocities = new Vector3[positions.Length];
             for (int i = 0; i < positions.Length; i++)
             {
                 var force = Vector3.zero;
@@ -80,10 +79,8 @@ namespace SimulationBackend
                     }
                 }
 
-                frameVelocities[i] += force / masses[i] * (GravityConstant * Time.deltaTime);
+                frameVelocities[i] += force / masses[i] * (GravityConstant * TimeStep);
             }
-
-            return frameVelocities;
         }
 
         private Vector3[] PredictNewPositions(Vector3[] oldPositions, Vector3[] currentVelocities)
@@ -102,10 +99,11 @@ namespace SimulationBackend
             var prediction = new Vector3[framesCount][];
             var currentPositions= ObjectsToUpdate.Select(x => x.position).ToArray();
             prediction[0] = currentPositions;
+            var frameVelocities = (Vector3[])velocities.Clone();
             for (int i = 1; i < framesCount; i++)
             {
-                var newVelocities = PredictForces(prediction[i - 1]);
-                prediction[i] = PredictNewPositions(prediction[i - 1], newVelocities);
+                PredictForces(prediction[i - 1], frameVelocities);
+                prediction[i] = PredictNewPositions(prediction[i - 1], frameVelocities);
             }
 
             return prediction;

@@ -6,6 +6,8 @@ namespace SimulationBackend
 {
     public abstract class SimulationBackendBase : IDisposable
     {
+        protected const float TimeStep = 1f / 144f;
+
         protected List<Transform> ObjectsToUpdate;
         protected readonly float MinDistance;
         protected readonly float GravityConstant;

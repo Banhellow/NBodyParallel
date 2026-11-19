@@ -1,69 +1,91 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace SimulationBackend
 {
     public class ParallelGpuBackend : SimulationBackendBase
     {
-        private int bodiesToSimulate;
-        private ComputeShader parallelShader;
+        private const int ThreadGroupSize = 256;
+        private const int KernelIndex = 0;
+
+        private static readonly int BodiesId = Shader.PropertyToID("bodies");
+        private static readonly int BodiesCountId = Shader.PropertyToID("bodiesCount");
+        private static readonly int GravityConstantId = Shader.PropertyToID("gravityConstant");
+        private static readonly int ConstraintId = Shader.PropertyToID("constraint");
+        private static readonly int DtId = Shader.PropertyToID("dt");
+
+        private readonly ComputeShader parallelShader;
         private Vector3[] velocities;
         private float[] masses;
+        private Body[] bodiesData;
+        private ComputeBuffer computeBuffer;
+        private int groupsCount;
 
-        public ParallelGpuBackend(List<Transform> objectsToUpdate, float minDistance, float gravityConstant, ComputeShader shader) 
+        public ParallelGpuBackend(List<Transform> objectsToUpdate, float minDistance, float gravityConstant, ComputeShader shader)
             : base(objectsToUpdate, minDistance, gravityConstant)
         {
-            bodiesToSimulate = objectsToUpdate.Count;
             parallelShader = shader;
         }
 
         public override void Initialize(Vector3[] newVelocities, float[] newMasses)
         {
+            ReleaseBuffer();
             velocities = newVelocities;
             masses = newMasses;
+
+            var count = ObjectsToUpdate.Count;
+            bodiesData = new Body[count];
+            if (count == 0)
+            {
+                return;
+            }
+
+            computeBuffer = new ComputeBuffer(count, Body.GetSize());
+            groupsCount = Mathf.CeilToInt(count / (float)ThreadGroupSize);
+
+            parallelShader.SetBuffer(KernelIndex, BodiesId, computeBuffer);
+            parallelShader.SetInt(BodiesCountId, count);
+            parallelShader.SetFloat(GravityConstantId, GravityConstant);
+            parallelShader.SetFloat(ConstraintId, MinDistance);
+            parallelShader.SetFloat(DtId, TimeStep);
         }
 
         public override void SimulateFrame()
         {
-            var bodiesData = new Body[bodiesToSimulate];
-            for (int i = 0; i < bodiesData.Length; i++)
+            if (computeBuffer == null)
             {
-                bodiesData[i] = new Body
-                {
-                    position = ObjectsToUpdate[i].position,
-                    velocity = velocities[i],
-                    mass = masses[i]
-                };
+                return;
             }
 
-            using var computeBuffer = new ComputeBuffer(bodiesData.Length, Body.GetSize());
-        
+            for (int i = 0; i < bodiesData.Length; i++)
+            {
+                bodiesData[i].position = ObjectsToUpdate[i].position;
+                bodiesData[i].velocity = velocities[i];
+                bodiesData[i].mass = masses[i];
+            }
+
             computeBuffer.SetData(bodiesData);
-            parallelShader.SetBuffer(0, "bodies", computeBuffer);
-            parallelShader.SetInt("bodiesCount", bodiesData.Length);
-            parallelShader.SetFloat("gravityConstant", GravityConstant);
-            parallelShader.SetFloat("constraint", MinDistance);
-            parallelShader.SetFloat("dt", 1/ 144f);
-        
-            var groupsCount = Mathf.FloorToInt(bodiesData.Length / 128f);
-            parallelShader.Dispatch(0,groupsCount, 1, 1);
-        
+            parallelShader.Dispatch(KernelIndex, groupsCount, 1, 1);
             computeBuffer.GetData(bodiesData);
+
             for (int i = 0; i < bodiesData.Length; i++)
             {
                 ObjectsToUpdate[i].position += bodiesData[i].velocity;
                 velocities[i] = bodiesData[i].velocity;
             }
-            
         }
-        
+
         public override void Dispose()
         {
-
+            ReleaseBuffer();
         }
-        
+
+        private void ReleaseBuffer()
+        {
+            computeBuffer?.Release();
+            computeBuffer = null;
+        }
+
         private struct Body
         {
             public Vector3 position;

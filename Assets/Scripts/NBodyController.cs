@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using Dataset;
 using DefaultNamespace;
 using SimulationBackend;
@@ -23,9 +24,8 @@ public class NBodyController : MonoBehaviour
     private bool simulationEnabled;
     private bool shouldRecordData;
     
-    //Perfomance counting
-    private double totalExecutionTime;
-    private int executionCount;
+    //Performance counting
+    private double simulationMs;
     private float deltaTime;
     private float framesCount;
     private int simulationFramesCount;
@@ -49,8 +49,7 @@ public class NBodyController : MonoBehaviour
         ResetBodies();
         simulation?.Dispose();
         simulation = null;
-        totalExecutionTime = 0;
-        executionCount = 0;
+        simulationMs = 0;
     }
     
     public void OnBackendDropdownChanged(int value)
@@ -60,18 +59,21 @@ public class NBodyController : MonoBehaviour
 
     private void ResetBodies()
     {
-        for (int i = 0; i < bodiesToSimulate; i++)
+        // Iterate the spawned bodies, not bodiesToSimulate: the serialized count can differ
+        // from what is actually in the scene.
+        foreach (var body in _transforms)
         {
-            Destroy(_transforms[i].gameObject);
+            Destroy(body.gameObject);
         }
-        
+
         _transforms.Clear();
     }
 
     private void OnDestroy()
     {
         dropdown.onValueChanged.RemoveListener(OnBackendDropdownChanged);
-        simulation.Dispose();
+        // simulation is null if Play mode ends before a simulation was started.
+        simulation?.Dispose();
         datasetRecorder?.TrySaveDataSet();
     }
 
@@ -93,7 +95,11 @@ public class NBodyController : MonoBehaviour
             return;
         }
         
+        var stopwatch = Stopwatch.StartNew();
         simulation.SimulateFrame();
+        stopwatch.Stop();
+        simulationMs = stopwatch.Elapsed.TotalMilliseconds;
+
         if (shouldRecordData)
         {
             datasetRecorder.Record(_transforms);
@@ -116,7 +122,7 @@ public class NBodyController : MonoBehaviour
 
         float msec = deltaTime * 1000.0f;
         float fpsRounded = Mathf.Round(framesCount);
-        string text = $"Threads:{JobsUtility.JobWorkerCount}, MS/frame ({msec:0.0} ms), parallel execution ms: {totalExecutionTime:0.0}ms, {fpsRounded:0.} FPS";
+        string text = $"Threads:{JobsUtility.JobWorkerCount}, MS/frame ({msec:0.0} ms), simulation step: {simulationMs:0.00} ms, {fpsRounded:0.} FPS";
         GUI.Label(rect, text, style);
     }
 
@@ -191,7 +197,8 @@ public class NBodyController : MonoBehaviour
 
     public void UpdateGeneralSettings(int threadCount, float gravityConst, float distanceConstraint, bool useComputeShader)
     {
-        JobsUtility.JobWorkerCount = threadCount;
+        // Setting a value outside [0, JobWorkerMaximumCount] throws.
+        JobsUtility.JobWorkerCount = Mathf.Clamp(threadCount, 0, JobsUtility.JobWorkerMaximumCount);
         gravityConstant = gravityConst;
         minDistance = distanceConstraint;
     }

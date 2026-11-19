@@ -15,9 +15,9 @@ MonoBehaviour:
   bodiesCount: 1000
   threadsCount: 1
   distanceConstraint: 10
-  gravityConstant: 0.002
+  gravityConstant: 1
   spawnRange: 20
   velocitiesRange: 0.01
-  maxMass: 20
+  maxMass: 2
   minMass: 1
   filePath: Enter file name

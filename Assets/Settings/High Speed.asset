@@ -18,6 +18,6 @@ MonoBehaviour:
   gravityConstant: 1
   spawnRange: 20
   velocitiesRange: 20
-  maxMass: 100
+  maxMass: 10
   minMass: 5
   filePath: Enter file name

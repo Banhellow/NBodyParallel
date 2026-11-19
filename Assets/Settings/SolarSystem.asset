@@ -15,7 +15,7 @@ MonoBehaviour:
   bodiesCount: 2000
   threadsCount: 1
   distanceConstraint: 30
-  gravityConstant: 0.5
+  gravityConstant: 1
   spawnRange: 20
   velocitiesRange: 20
   maxMass: 20
