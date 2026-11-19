@@ -1,61 +1,64 @@
 ﻿using System.Collections.Generic;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
+using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Jobs;
 
 namespace SimulationBackend
 {
+    [BurstCompile]
     public class ParallelCpuBackend : SimulationBackendBase
     {
-        private readonly int bodiesToSimulate;
-        private NativeArray<Vector3> velocities;
+        private NativeArray<float3> velocities;
         private NativeArray<float> masses;
+        private NativeArray<float3>  positions;
+        private TransformAccessArray particles;
+        
         public ParallelCpuBackend(List<Transform> objectsToUpdate, float minDistance, float gravityConstant)
-            : base(objectsToUpdate, minDistance, gravityConstant)
-        {
-            bodiesToSimulate = objectsToUpdate.Count;
-            velocities = new NativeArray<Vector3>(bodiesToSimulate, Allocator.Persistent);
-            masses = new NativeArray<float>(bodiesToSimulate, Allocator.Persistent);
-        }
-
+            : base(objectsToUpdate, minDistance, gravityConstant){ }
 
         public override void Initialize(Vector3[] newVelocities, float[] newMasses)
         {
-            velocities = new NativeArray<Vector3>(bodiesToSimulate, Allocator.Persistent);
-            masses = new NativeArray<float>(bodiesToSimulate, Allocator.Persistent);
-            for (int i = 0; i < bodiesToSimulate; i++)
+            DisposeBuffers();
+            var count = ObjectsToUpdate.Count;
+            velocities = new NativeArray<float3>(count, Allocator.Persistent);
+            masses = new NativeArray<float>(count, Allocator.Persistent);
+            positions = new NativeArray<float3>(count, Allocator.Persistent);
+            particles = new TransformAccessArray(ObjectsToUpdate.ToArray());
+            
+            for (int i = 0; i < count; i++)
             {
                 velocities[i] = newVelocities[i];
                 masses[i] = newMasses[i];
+                positions[i] = ObjectsToUpdate[i].position;
             }
         }
 
         public override void SimulateFrame()
         {
-            var positions = new NativeArray<Vector3>(bodiesToSimulate, Allocator.TempJob);
-            for (int i = 0; i < bodiesToSimulate; i++)
-            {
-                positions[i] = ObjectsToUpdate[i].position;
-            }
+            var forcesJob = new BodyJob(positions, velocities, masses, GravityConstant, MinDistance, 1/144f);
+            var batchCount = ObjectsToUpdate.Count / JobsUtility.JobWorkerCount;
+            var forceHandle = forcesJob.Schedule( ObjectsToUpdate.Count, batchCount);
 
-            TransformAccessArray particles = new TransformAccessArray(ObjectsToUpdate.ToArray());
-            var job = new BodyJob(positions, velocities, masses, GravityConstant, MinDistance, 1/144f);
-            var batchCount = bodiesToSimulate / JobsUtility.JobWorkerCount;
-            var handle = job.Schedule(bodiesToSimulate, batchCount);
-
-            var updateJob = new UpdateJob(velocities);
-            var updateHandle = updateJob.ScheduleByRef(particles, handle);
+            var updateJob = new UpdateJob(velocities, positions);
+            var updateHandle = updateJob.ScheduleByRef(particles, forceHandle);
             updateHandle.Complete();
-            positions.Dispose();
-            particles.Dispose();
         }
 
         public override void Dispose()
         {
-            velocities.Dispose();
-            masses.Dispose();
+            DisposeBuffers();
+        }
+
+        private void DisposeBuffers()
+        {
+            if(velocities.IsCreated) velocities.Dispose();
+            if(masses.IsCreated) masses.Dispose();
+            if(positions.IsCreated) positions.Dispose();
+            if(particles.isCreated) particles.Dispose();
         }
     }
 }

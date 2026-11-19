@@ -3,12 +3,11 @@ using Dataset;
 using DefaultNamespace;
 using SimulationBackend;
 using TMPro;
-using Unity.Burst;
 using Unity.Jobs.LowLevel.Unsafe;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
-[BurstCompile]
+
 public class NBodyController : MonoBehaviour
 {
     [SerializeField] private Transform container;

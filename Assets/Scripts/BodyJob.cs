@@ -1,37 +1,39 @@
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
+using Unity.Mathematics;
 using UnityEngine;
 
+[BurstCompile]
 public struct BodyJob : IJobParallelFor
 {
-    [ReadOnly] public NativeArray<float> _masses;
-    [ReadOnly] public NativeArray<Vector3> _positions;
-    public NativeArray<Vector3> _velocities;
-    
-    public float _minDistance;
-    public float _gravityConstant;
-    public float dt;
+    [ReadOnly] private NativeArray<float> _masses;
+    [ReadOnly] private NativeArray<float3> _positions;
+    private NativeArray<float3> _velocities;
 
-    public BodyJob(NativeArray<Vector3> positions, NativeArray<Vector3> velocities,NativeArray<float> masses, float gravityConstant, float minDistance, float dt) : this()
+    private float _minDistance;
+    private float _gravityConstant;
+    private float _dt;
+
+    public BodyJob(NativeArray<float3> positions, NativeArray<float3> velocities,NativeArray<float> masses, float gravityConstant, float minDistance, float dt) : this()
     {
         _positions = positions;
         _velocities = velocities;
         _gravityConstant = gravityConstant;
         _minDistance = minDistance;
         _masses = masses;
-        this.dt = dt;
+        _dt = dt;
     }
-
-
+    
     public void Execute(int index)
     {
-        Vector3 force = CalculateForce(index);
-        _velocities[index] +=  force / _masses[index] * dt;
+        float3 force = CalculateForce(index);
+        _velocities[index] +=  force / _masses[index] * _dt;
     }
 
-    private Vector3 CalculateForce(int currentIndex)
+    private float3 CalculateForce(int currentIndex)
     {
-        Vector3 force = Vector3.zero;
+        var force = float3.zero;
         for (int i = 0; i < _positions.Length; i++)
         {
             if (currentIndex == i)
@@ -40,8 +42,8 @@ public struct BodyJob : IJobParallelFor
             }
 
             var delta = _positions[i] - _positions[currentIndex];
-            var distance = Mathf.Max(delta.magnitude, _minDistance);
-            force += _gravityConstant * delta * (_masses[currentIndex] * _masses[i] / Mathf.Pow(distance, 3));
+            var distance = Mathf.Max(math.length(delta), _minDistance);
+            force += _gravityConstant * delta * (_masses[currentIndex] * _masses[i] / math.pow(distance, 3));
         }
 
         return force;
