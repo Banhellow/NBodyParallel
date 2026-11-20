@@ -2,7 +2,7 @@
 using Newtonsoft.Json;
 using UnityEngine;
 
-namespace DefaultNamespace.Responses
+namespace Responses
 {
     [Serializable]
     public class PredictionResponse

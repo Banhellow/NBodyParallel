@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.Linq;
 using Communication;
 using UnityEngine;
 using Utilities;
@@ -23,21 +22,18 @@ namespace SimulationBackend
         {
             velocities = newVelocities;
             masses = newMasses;
-            lastPositions = ObjectsToUpdate.Select(x => x.position).ToArray();
-        }
+            lastPositions = new Vector3[ObjectsToUpdate.Count];
+            ReadPositions(lastPositions);
 
-        public void InitializeConnection()
-        {
             messageHandler = new MessageHandler();
-            var predictedFrames = PredictFrames(WorkingWindowSize);
-            messageHandler.SetSimulatedData(predictedFrames, masses);
+            messageHandler.SetSimulatedData(PredictFrames(WorkingWindowSize), masses);
             connection = new WebSocketConnection(URL, messageHandler);
             connection.InitializeConnection();
         }
 
         public override void Dispose()
         {
-            connection.CloseConnection();
+            connection?.CloseConnection();
             connection = null;
             base.Dispose();
         }
@@ -45,65 +41,26 @@ namespace SimulationBackend
         public override void SimulateFrame()
         {
             connection.AcceptMessage();
-            var predictedPositions = RequestPredictedPositions();
-            for (int i = 0; i < ObjectsToUpdate.Count; i++)
-            {
-                ObjectsToUpdate[i].position = predictedPositions[i];
-            }
-        }
-
-        private Vector3[] RequestPredictedPositions()
-        {
             var positions = messageHandler.GetFrame();
-            var parsedPositions = positions == null ? lastPositions : ParseUtilities.ConvertToVector(positions);
             if (positions != null)
             {
-                lastPositions = parsedPositions;
-            }
-            
-            return parsedPositions;
-        }
-        
-        private void PredictForces(Vector3[] positions, Vector3[] frameVelocities)
-        {
-            for (int i = 0; i < positions.Length; i++)
-            {
-                var force = Vector3.zero;
-                for (int j = 0; j < positions.Length; j++)
-                {
-                    if (i != j)
-                    {
-                        var delta = positions[j] - positions[i];
-                        var distance = Mathf.Max(delta.magnitude, MinDistance);
-                        force += delta * (masses[i] * masses[j] / Mathf.Pow(distance, 3));
-                    }
-                }
-
-                frameVelocities[i] += force / masses[i] * (GravityConstant * TimeStep);
-            }
-        }
-
-        private Vector3[] PredictNewPositions(Vector3[] oldPositions, Vector3[] currentVelocities)
-        {
-            var newPositions = new Vector3[oldPositions.Length];
-            for (int i = 0; i < newPositions.Length; i++)
-            {
-                newPositions[i] = oldPositions[i] + currentVelocities[i];
+                lastPositions = ParseUtilities.ConvertToVector(positions);
             }
 
-            return newPositions;
+            WritePositions(lastPositions);
         }
 
         private Vector3[][] PredictFrames(int framesCount)
         {
             var prediction = new Vector3[framesCount][];
-            var currentPositions= ObjectsToUpdate.Select(x => x.position).ToArray();
-            prediction[0] = currentPositions;
+            prediction[0] = (Vector3[])lastPositions.Clone();
             var frameVelocities = (Vector3[])velocities.Clone();
             for (int i = 1; i < framesCount; i++)
             {
-                PredictForces(prediction[i - 1], frameVelocities);
-                prediction[i] = PredictNewPositions(prediction[i - 1], frameVelocities);
+                var frame = (Vector3[])prediction[i - 1].Clone();
+                GravityMath.ApplyGravity(frame, frameVelocities, masses, GravityConstant, MinDistance, TimeStep);
+                GravityMath.Integrate(frame, frameVelocities);
+                prediction[i] = frame;
             }
 
             return prediction;

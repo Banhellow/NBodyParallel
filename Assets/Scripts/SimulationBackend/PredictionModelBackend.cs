@@ -1,39 +1,40 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using Newtonsoft.Json;
-using Requests;
-using UnityEngine;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
-using DefaultNamespace.Responses;
-using Extensions;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Requests;
+using Responses;
+using UnityEngine;
+using Utilities;
 
 namespace SimulationBackend
 {
     public class PredictionModelBackend : SimulationBackendBase
     {
         private const int WorkingWindowSize = 7;
+        private const string Url = "http://127.0.0.1:8000/predict";
+
+        private readonly HttpClient client = new();
+        private readonly CancellationTokenSource cancellationTokenSource = new();
         private float[] masses;
+        private Vector3[] positions;
         private Vector3[] velocities;
         private Vector3[][] workingWindowPositions;
-        private int executionCount;
-        private readonly HttpClient client = new ();
-        private bool executeOnce;
-        private CancellationTokenSource cancellationTokenSource;
-        
-        public PredictionModelBackend(List<Transform> objectsToUpdate, float minDistance, float gravityConstant) 
-            : base(objectsToUpdate, minDistance, gravityConstant)
-        {
-            
-        }
+        private int warmupFrames;
+        private Task<Vector3[]> pendingRequest;
+        private bool requestFailed;
+
+        public PredictionModelBackend(List<Transform> objectsToUpdate, float minDistance, float gravityConstant)
+            : base(objectsToUpdate, minDistance, gravityConstant) { }
 
         public override void Initialize(Vector3[] newVelocities, float[] newMasses)
         {
             velocities = newVelocities;
             masses = newMasses;
-            cancellationTokenSource = new CancellationTokenSource();
+            positions = new Vector3[ObjectsToUpdate.Count];
             workingWindowPositions = new Vector3[ObjectsToUpdate.Count][];
             for (int i = 0; i < ObjectsToUpdate.Count; i++)
             {
@@ -43,62 +44,75 @@ namespace SimulationBackend
 
         public override void Dispose()
         {
-            base.Dispose();
             cancellationTokenSource.Cancel();
+            cancellationTokenSource.Dispose();
+            client.Dispose();
+            base.Dispose();
         }
 
         public override void SimulateFrame()
         {
-            if (executionCount < WorkingWindowSize)
+            if (warmupFrames < WorkingWindowSize)
             {
-                UpdateForces();
-                UpdateBodies();
-                AddRecordToWorkingWindow();
-                executionCount++;
+                SimulateWarmupFrame();
                 return;
             }
-            
-            var predictedPositions = RequestPredictedPositions();
-            UpdateWorkingWindow(predictedPositions);
-            for (int i = 0; i < ObjectsToUpdate.Count; i++)
+
+            if (requestFailed)
             {
-                ObjectsToUpdate[i].position = predictedPositions[i];
+                return;
             }
+
+            if (pendingRequest == null)
+            {
+                pendingRequest = RequestPredictedPositionsAsync(cancellationTokenSource.Token);
+                return;
+            }
+
+            if (!pendingRequest.IsCompleted)
+            {
+                return;
+            }
+
+            if (!pendingRequest.IsCompletedSuccessfully)
+            {
+                requestFailed = true;
+                Debug.LogError($"Prediction request failed, stopping the prediction backend: {pendingRequest.Exception?.GetBaseException().Message}");
+                return;
+            }
+
+            var predictedPositions = pendingRequest.Result;
+            UpdateWorkingWindow(predictedPositions);
+            WritePositions(predictedPositions);
+            pendingRequest = RequestPredictedPositionsAsync(cancellationTokenSource.Token);
         }
 
-        private  Vector3[] RequestPredictedPositions()
+        private void SimulateWarmupFrame()
+        {
+            ReadPositions(positions);
+            GravityMath.ApplyGravity(positions, velocities, masses, GravityConstant, MinDistance, TimeStep);
+            GravityMath.Integrate(positions, velocities);
+            WritePositions(positions);
+
+            for (int i = 0; i < positions.Length; i++)
+            {
+                workingWindowPositions[i][warmupFrames] = positions[i];
+            }
+
+            warmupFrames++;
+        }
+
+        private async Task<Vector3[]> RequestPredictedPositionsAsync(CancellationToken token)
         {
             var requestBody = new PredictionRequest { Masses = masses, Positions = ExtractPositions() };
-            var parsedBody = JsonConvert.SerializeObject(requestBody);
-            var content = new StringContent(parsedBody, Encoding.UTF8, "application/json");
-            var url = "http://127.0.0.1:8000/predict";
-            try
-            {
-                var response = client.PostAsync(url, content, cancellationTokenSource.Token).Result;
-                var responseData =  response.Content.GetContentData<PredictionResponse>();
-                return ConvertToVector(responseData.PredictedPositions);
-            }
-            catch (HttpRequestException e)
-            {
-                Debug.LogError($"Request Error: {e.Message}");
-                throw;
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Exception handling response: {e.Message}");
-                throw;
-            }
-        }
+            var json = JsonConvert.SerializeObject(requestBody);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        private Vector3[] ConvertToVector(float[][] vectors)
-        {
-            var result = new Vector3[vectors.Length];
-            for (int i = 0; i < vectors.Length; i++)
-            {
-                result[i] = new Vector3(vectors[i][0], vectors[i][1], vectors[i][2]);
-            }
-
-            return result;
+            using var response = await client.PostAsync(Url, content, token).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            var responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var responseData = JsonConvert.DeserializeObject<PredictionResponse>(responseBody);
+            return ParseUtilities.ConvertToVector(responseData.PredictedPositions);
         }
 
         private float[][][] ExtractPositions()
@@ -109,67 +123,20 @@ namespace SimulationBackend
                 result[i] = new float[WorkingWindowSize][];
                 for (int j = 0; j < WorkingWindowSize; j++)
                 {
-                    var vector = workingWindowPositions[i][j];
-                    result[i][j] = new [] { vector.x, vector.y, vector.z };
+                    result[i][j] = ParseUtilities.Vector3ToFloatArray(workingWindowPositions[i][j]);
                 }
             }
 
             return result;
         }
 
-        private void ShiftWorkingWindow()
-        {
-            foreach (var particlePosition in workingWindowPositions)
-            {
-                for (int i = 1; i < particlePosition.Length; i++)
-                {
-                    particlePosition[i - 1] = particlePosition[i];
-                }
-            }
-        }
-
         private void UpdateWorkingWindow(Vector3[] newPositions)
         {
-            ShiftWorkingWindow();
-            for (int j = 0; j < newPositions.Length; j++)
+            for (int i = 0; i < workingWindowPositions.Length; i++)
             {
-                workingWindowPositions[j][^1] = newPositions[j];
-            }
-        }
-        
-        private void UpdateForces()
-        {
-            for (int i = 0; i < ObjectsToUpdate.Count; i++)
-            {
-                var force = Vector3.zero;
-                for (int j = 0; j < ObjectsToUpdate.Count; j++)
-                {
-                    if (i != j)
-                    {
-                        var delta = ObjectsToUpdate[j].position - ObjectsToUpdate[i].position;
-                        var distance = Mathf.Max(delta.magnitude, MinDistance);
-                        force += delta * (masses[i] * masses[j] / Mathf.Pow(distance, 3));
-                    }
-                }
-
-                velocities[i] += force / masses[i] * (GravityConstant * TimeStep);
-            }
-        }
-        
-        private void UpdateBodies()
-        {
-            for (int i = 0; i < ObjectsToUpdate.Count; i++)
-            {
-                ObjectsToUpdate[i].position += velocities[i];
-            }
-        }
-
-        private void AddRecordToWorkingWindow()
-        {
-            var bodiesCount = ObjectsToUpdate.Count;
-            for (int i = 0; i < bodiesCount; i++)
-            {
-                workingWindowPositions[i][executionCount] = ObjectsToUpdate[i].position;
+                var window = workingWindowPositions[i];
+                Array.Copy(window, 1, window, 0, window.Length - 1);
+                window[^1] = newPositions[i];
             }
         }
     }

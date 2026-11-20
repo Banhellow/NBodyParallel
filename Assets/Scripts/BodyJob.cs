@@ -1,8 +1,8 @@
+using SimulationBackend;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
-using UnityEngine;
 
 [BurstCompile]
 public struct BodyJob : IJobParallelFor
@@ -15,7 +15,7 @@ public struct BodyJob : IJobParallelFor
     private float _gravityConstant;
     private float _dt;
 
-    public BodyJob(NativeArray<float3> positions, NativeArray<float3> velocities,NativeArray<float> masses, float gravityConstant, float minDistance, float dt) : this()
+    public BodyJob(NativeArray<float3> positions, NativeArray<float3> velocities, NativeArray<float> masses, float gravityConstant, float minDistance, float dt) : this()
     {
         _positions = positions;
         _velocities = velocities;
@@ -24,28 +24,21 @@ public struct BodyJob : IJobParallelFor
         _masses = masses;
         _dt = dt;
     }
-    
+
     public void Execute(int index)
     {
-        float3 force = CalculateForce(index);
-        _velocities[index] +=  force / _masses[index] * _dt;
-    }
-
-    private float3 CalculateForce(int currentIndex)
-    {
-        var force = float3.zero;
+        var position = _positions[index];
+        var acceleration = float3.zero;
         for (int i = 0; i < _positions.Length; i++)
         {
-            if (currentIndex == i)
+            if (index == i)
             {
                 continue;
             }
 
-            var delta = _positions[i] - _positions[currentIndex];
-            var distance = Mathf.Max(math.length(delta), _minDistance);
-            force += _gravityConstant * delta * (_masses[currentIndex] * _masses[i] / math.pow(distance, 3));
+            acceleration += GravityMath.Acceleration(position, _positions[i], _masses[i], _gravityConstant, _minDistance);
         }
 
-        return force;
+        _velocities[index] += acceleration * _dt;
     }
 }

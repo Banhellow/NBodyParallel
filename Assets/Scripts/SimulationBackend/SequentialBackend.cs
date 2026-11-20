@@ -5,51 +5,26 @@ namespace SimulationBackend
 {
     public class SequentialBackend : SimulationBackendBase
     {
+        private Vector3[] positions;
         private Vector3[] velocities;
         private float[] masses;
-        public SequentialBackend(List<Transform> objectToUpdate, float gravityConstant, float minDistance) 
-            : base(objectToUpdate, minDistance, gravityConstant)
-        {
-            velocities = new Vector3[objectToUpdate.Count];
-        }
 
-        public override void SimulateFrame()
-        {
-            UpdateForces();
-            UpdateBodies();
-        }
+        public SequentialBackend(List<Transform> objectsToUpdate, float minDistance, float gravityConstant)
+            : base(objectsToUpdate, minDistance, gravityConstant) { }
 
         public override void Initialize(Vector3[] newVelocities, float[] newMasses)
         {
             velocities = newVelocities;
             masses = newMasses;
+            positions = new Vector3[ObjectsToUpdate.Count];
         }
-        
-        private void UpdateForces()
-        {
-            for (int i = 0; i < ObjectsToUpdate.Count; i++)
-            {
-                var force = Vector3.zero;
-                for (int j = 0; j < ObjectsToUpdate.Count; j++)
-                {
-                    if (i != j)
-                    {
-                        var delta = ObjectsToUpdate[j].position - ObjectsToUpdate[i].position;
-                        var distance = Mathf.Max(delta.magnitude, MinDistance);
-                        force += delta * (masses[i] * masses[j] / Mathf.Pow(distance, 3));
-                    }
-                }
 
-                velocities[i] += force / masses[i] * (GravityConstant * TimeStep);
-            }
-        }
-        
-        private void UpdateBodies()
+        public override void SimulateFrame()
         {
-            for (int i = 0; i < ObjectsToUpdate.Count; i++)
-            {
-                ObjectsToUpdate[i].position += velocities[i];
-            }
+            ReadPositions(positions);
+            GravityMath.ApplyGravity(positions, velocities, masses, GravityConstant, MinDistance, TimeStep);
+            GravityMath.Integrate(positions, velocities);
+            WritePositions(positions);
         }
     }
 }

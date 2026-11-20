@@ -1,6 +1,6 @@
 using System;
 using System.Text;
-using DefaultNamespace.Responses;
+using Responses;
 using NativeWebSocket;
 using Newtonsoft.Json;
 using UnityEngine;

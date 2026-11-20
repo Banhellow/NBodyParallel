@@ -16,29 +16,25 @@ float gravityConstant;
 float constraint;
 float dt;
 
-float magnitude(float3 vec)
+float3 GetVelocityForBody(uint index)
 {
-    return sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z);
-}
+    float3 position = bodies[index].position;
+    float3 acceleration = 0;
 
-float3 GetVelocityForBody(int index)
-{
-    float3 force = 0;
-    
     [loop]
-    for (int i = 0; i < bodiesCount; i++)
+    for (uint i = 0; i < (uint)bodiesCount; i++)
     {
         if (index == i)
         {
             continue;
         }
 
-        float3 delta = bodies[i].position - bodies[index].position;
+        float3 delta = bodies[i].position - position;
         float distance = max(length(delta), constraint);
-        force += gravityConstant * delta * (bodies[index].mass * bodies[i].mass / pow(distance, 3));
+        acceleration += gravityConstant * bodies[i].mass * delta / (distance * distance * distance);
     }
-    
-    return force / bodies[index].mass *  dt;
+
+    return acceleration * dt;
 }
 
 #define THREAD_GROUP_SIZE 256

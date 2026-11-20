@@ -9,15 +9,13 @@ public class IntializeGeneralPanel : MonoBehaviour, IConfigurable
     [SerializeField] private InputValue radiusConstraint;
     [SerializeField] private NBodyController bodyController;
     [SerializeField] private Button updateButton;
-    [SerializeField] private Toggle toggle;
     
     private void OnConfirmButtonClicked()
     {
         float gravityConst = float.Parse(gravityConstant.GetValue());
         float constraint = float.Parse(radiusConstraint.GetValue());
         int threads = int.Parse(threadsCount.GetValue());
-        bool gpuEnabled = toggle.isOn;
-        bodyController.UpdateGeneralSettings(threads, gravityConst, constraint, gpuEnabled);
+        bodyController.UpdateGeneralSettings(threads, gravityConst, constraint);
     }
 
     public void Initialize(DefaultSettingsSO settings)

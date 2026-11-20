@@ -8,10 +8,11 @@ namespace SimulationBackend
     {
         protected const float TimeStep = 1f / 144f;
 
-        protected List<Transform> ObjectsToUpdate;
+        protected readonly List<Transform> ObjectsToUpdate;
         protected readonly float MinDistance;
         protected readonly float GravityConstant;
-        public SimulationBackendBase(List<Transform> objectsToUpdate, float minDistance, float gravityConstant)
+
+        protected SimulationBackendBase(List<Transform> objectsToUpdate, float minDistance, float gravityConstant)
         {
             ObjectsToUpdate = objectsToUpdate;
             MinDistance = minDistance;
@@ -23,7 +24,22 @@ namespace SimulationBackend
 
         public virtual void Dispose()
         {
+        }
 
+        protected void ReadPositions(Vector3[] target)
+        {
+            for (int i = 0; i < target.Length; i++)
+            {
+                target[i] = ObjectsToUpdate[i].position;
+            }
+        }
+
+        protected void WritePositions(Vector3[] source)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                ObjectsToUpdate[i].position = source[i];
+            }
         }
     }
 }

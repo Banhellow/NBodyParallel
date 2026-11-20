@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using Dataset;
-using DefaultNamespace;
 using SimulationBackend;
 using TMPro;
 using Unity.Jobs.LowLevel.Unsafe;
@@ -16,7 +15,6 @@ public class NBodyController : MonoBehaviour
     [SerializeField] private float gravityConstant;
     [SerializeField] private float minDistance;
     [SerializeField] private GravityBody bodyPrefab;
-    [SerializeField] private bool collectData;
     [SerializeField] private DatasetSettings datasetSettings;
     [SerializeField] private SimulationType simulationType;
     [SerializeField] private TMP_Dropdown dropdown;
@@ -28,7 +26,6 @@ public class NBodyController : MonoBehaviour
     private double simulationMs;
     private float deltaTime;
     private float framesCount;
-    private int simulationFramesCount;
     private SimulationBackendBase simulation;
     private SimulationBackendFactory simulationBackendFactory;
     private DatasetRecorder datasetRecorder;
@@ -76,17 +73,6 @@ public class NBodyController : MonoBehaviour
         simulation?.Dispose();
         datasetRecorder?.TrySaveDataSet();
     }
-
-    private void StartSimulation()
-    {
-        simulationEnabled = true;
-    }
-
-    private void StopSimulation()
-    {
-        simulationEnabled = false;
-    }
-
 
     void Update()
     {
@@ -142,20 +128,7 @@ public class NBodyController : MonoBehaviour
             velocities[i] = inputs[i].velocity;
         }
 
-        if (datasetSettings != null)
-        {
-            datasetRecorder = new DatasetRecorder(datasetSettings);
-            datasetRecorder.Initialize(bodiesToSimulate, masses);
-        }
-
-        simulation = simulationBackendFactory.Create(simulationType, _transforms, minDistance, gravityConstant, parallelShader);
-        simulation.Initialize(velocities, masses);
-        if (simulation is WSPredictionModelBackend wsSim)
-        {
-            wsSim.InitializeConnection();
-        }
-        
-        StartSimulation();
+        StartSimulation(velocities, masses);
     }
 
     public void Initialize(int bodyCount, float spawnRange, float velocityRange, float minMass, float maxMass)
@@ -177,25 +150,24 @@ public class NBodyController : MonoBehaviour
             masses[i] = mass;
             velocities[i] = velocity;
         }
-        
+
+        StartSimulation(velocities, masses);
+    }
+
+    private void StartSimulation(Vector3[] velocities, float[] masses)
+    {
         if (datasetSettings != null)
         {
             datasetRecorder = new DatasetRecorder(datasetSettings);
             datasetRecorder.Initialize(bodiesToSimulate, masses);
         }
-        
-        simulation = simulationBackendFactory.Create(simulationType, _transforms, minDistance, gravityConstant, parallelShader);
-        simulation.Initialize(velocities, masses);  
-        if (simulation is WSPredictionModelBackend wsSim)
-        {
-            wsSim.InitializeConnection();
-        }
-        
-        StartSimulation();
-    }
-    
 
-    public void UpdateGeneralSettings(int threadCount, float gravityConst, float distanceConstraint, bool useComputeShader)
+        simulation = simulationBackendFactory.Create(simulationType, _transforms, minDistance, gravityConstant, parallelShader);
+        simulation.Initialize(velocities, masses);
+        simulationEnabled = true;
+    }
+
+    public void UpdateGeneralSettings(int threadCount, float gravityConst, float distanceConstraint)
     {
         // Setting a value outside [0, JobWorkerMaximumCount] throws.
         JobsUtility.JobWorkerCount = Mathf.Clamp(threadCount, 0, JobsUtility.JobWorkerMaximumCount);

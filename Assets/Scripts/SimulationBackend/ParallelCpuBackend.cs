@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
@@ -9,7 +8,6 @@ using UnityEngine.Jobs;
 
 namespace SimulationBackend
 {
-    [BurstCompile]
     public class ParallelCpuBackend : SimulationBackendBase
     {
         private NativeArray<float3> velocities;
